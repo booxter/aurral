@@ -62,11 +62,15 @@ def integer(value) -> int | None:
 
 
 def artist(payload: dict) -> str | None:
+    """Read an optional artist name or list from a matcher payload."""
     for key in ("artistName", "artist"):
         value = text(payload.get(key))
         if value:
             return value
-    names = [text(value) for value in payload.get("artists", [])]
+    artists = payload.get("artists")
+    if not isinstance(artists, list):
+        return None
+    names = [text(value) for value in artists]
     names = [value for value in names if value]
     return "; ".join(names) if names else None
 
@@ -117,6 +121,9 @@ def distance_evidence(distance) -> dict:
 def configure_beets() -> None:
     from beets import config
 
+    # The bundled matcher uses Beets' matching defaults, not a user's Beets
+    # installation. Avoid resolving the container's unwritable root home.
+    config.read(user=False)
     for key, value in BEETS_MATCH_CONFIG.items():
         config["match"][key].set(value)
 
@@ -124,6 +131,13 @@ def configure_beets() -> None:
 def operation_health(_: dict) -> dict:
     import beets
 
+    # Imports alone do not exercise Beets' lazy configuration or scoring code.
+    probe = operation_track_distance({
+        "expected": {"artistName": "Aurral", "trackName": "Matcher Probe"},
+        "candidates": [{"artistName": "Aurral", "title": "Matcher Probe"}],
+    })
+    if len(probe["matches"]) != 1 or probe["matches"][0].get("distance") != 0:
+        raise RuntimeError("beets track-distance self-test failed")
     return {
         "ok": True,
         "operation": "health",
